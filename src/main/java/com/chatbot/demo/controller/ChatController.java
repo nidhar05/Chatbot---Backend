@@ -3,7 +3,6 @@ package com.chatbot.demo.controller;
 import com.chatbot.demo.model.ChatRequest;
 import com.chatbot.demo.model.ChatResponse;
 import com.chatbot.demo.service.AIService;
-
 import org.springframework.web.bind.annotation.*;
 
 @RestController
