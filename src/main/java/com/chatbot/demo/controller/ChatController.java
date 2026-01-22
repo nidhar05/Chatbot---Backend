@@ -2,24 +2,24 @@ package com.chatbot.demo.controller;
 
 import com.chatbot.demo.model.ChatRequest;
 import com.chatbot.demo.model.ChatResponse;
-import com.chatbot.demo.service.ChatService;
+import com.chatbot.demo.service.AIService;
 
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@CrossOrigin(origins = "*")
 @RequestMapping("/api/chat")
+@CrossOrigin("*")
 public class ChatController {
 
-    private final ChatService chatService;
+    private final AIService aiService;
 
-    public ChatController(ChatService chatService) {
-        this.chatService = chatService;
+    public ChatController(AIService aiService) {
+        this.aiService = aiService;
     }
 
     @PostMapping
     public ChatResponse chat(@RequestBody ChatRequest request) {
-        String reply = chatService.getBotReply(request.getMessage());
+        String reply = aiService.getAIReply(request.getMessage());
         return new ChatResponse(reply);
     }
 }

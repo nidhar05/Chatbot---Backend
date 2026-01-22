@@ -1,7 +1,7 @@
 package com.chatbot.demo.model;
 
 public class ChatResponse {
-    private final String reply;
+    private String reply;
 
     public ChatResponse(String reply) {
         this.reply = reply;
