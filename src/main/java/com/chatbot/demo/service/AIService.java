@@ -1,5 +1,6 @@
 package com.chatbot.demo.service;
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -16,6 +17,14 @@ public class AIService {
     // 🔑 Injected from Render Environment Variable: GROQ_API_KEY
     @Value("${groq.api.key:}")
     private String apiKey;
+
+    @PostConstruct
+    public void logEnvCheck() {
+        System.out.println(
+                "Groq API key present: " +
+                        (apiKey != null && !apiKey.isBlank())
+        );
+    }
 
     public String getAIReply(String userMessage) {
 
