@@ -1,5 +1,7 @@
 package com.chatbot.demo.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -14,63 +16,64 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class AIService {
 
-    // 🔑 Injected from Render Environment Variable: GROQ_API_KEY
+    // Injected from application.properties (local)
+    // OR Render Environment Variable: GROQ_API_KEY
     @Value("${groq.api.key:}")
     private String apiKey;
 
+    // Optional startup log (remove after testing)
     @PostConstruct
     public void logEnvCheck() {
-        System.out.println(
-                "Groq API key present: " +
-                        (apiKey != null && !apiKey.isBlank())
-        );
+        System.out.println("Groq API key present: " + (apiKey != null && !apiKey.isBlank()));
     }
 
     public String getAIReply(String userMessage) {
 
-        // 🛡️ Safety: if key is missing, do NOT crash app
+        // Safety check
         if (apiKey == null || apiKey.isBlank()) {
-            return "⚠️ AI service is not configured properly. Please try again later.";
+            return "⚠️ AI service is not configured right now.";
         }
 
         try {
-            // 🔹 Groq API endpoint
             URL url = new URL("https://api.groq.com/openai/v1/chat/completions");
             HttpURLConnection con = (HttpURLConnection) url.openConnection();
 
             con.setRequestMethod("POST");
             con.setRequestProperty("Authorization", "Bearer " + apiKey);
             con.setRequestProperty("Content-Type", "application/json");
-            con.setConnectTimeout(15000); // 15 seconds
+            con.setConnectTimeout(15000);
             con.setReadTimeout(15000);
             con.setDoOutput(true);
 
-            // 🔹 Request body (chat-style, not completion-style)
+            // 🧠 PURE CONVERSATIONAL PROMPT
             String body = """
             {
-              "model": "llama3-8b-8192",
+              "model": "llama-3.1-8b-instant",
               "messages": [
                 {
                   "role": "system",
-                  "content": "You are Prakruti AI, an Ayurvedic health assistant. Respond clearly and safely. Do NOT invent user replies. Ask at most ONE follow-up question."
+                  "content": "You are Prakruti AI, a friendly and caring Ayurvedic health assistant. Speak naturally like a human. If the user greets, greet back. If they say they are not well, respond with empathy and ask what they are experiencing. If symptoms are described, explain possible causes and remedies. Introduce Prakruti concepts (Vata, Pitta, Kapha) ONLY if it naturally fits the conversation. Do NOT force Prakruti assessment. Ask only ONE follow-up question at a time."
                 },
                 {
                   "role": "user",
                   "content": "%s"
                 }
-              ]
+              ],
+              "max_tokens": 300,
+              "temperature": 0.7
             }
             """.formatted(userMessage);
 
-            // 🔹 Send request
             try (OutputStream os = con.getOutputStream()) {
                 os.write(body.getBytes(StandardCharsets.UTF_8));
             }
 
-            // 🔹 Read response
-            BufferedReader br = new BufferedReader(
-                    new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8)
-            );
+            BufferedReader br;
+            if (con.getResponseCode() >= 400) {
+                br = new BufferedReader(new InputStreamReader(con.getErrorStream(), StandardCharsets.UTF_8));
+            } else {
+                br = new BufferedReader(new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8));
+            }
 
             StringBuilder response = new StringBuilder();
             String line;
@@ -80,18 +83,31 @@ public class AIService {
 
             String res = response.toString();
 
-            // 🔹 Extract AI message (simple but effective)
-            String aiReply = res.split("\"content\":\"")[1].split("\"")[0];
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(res);
 
-            // 🔹 Cleanup formatting
-            aiReply = aiReply.replace("\\n", "\n");
+            // 🔍 SAFE extraction
+            JsonNode choicesNode = root.path("choices");
+            String aiReply = null;
 
-            // 🔹 Extra safety: remove any fake user text
-            if (aiReply.contains("User:")) {
-                aiReply = aiReply.split("User:")[0];
+            if (choicesNode.isArray() && choicesNode.size() > 0) {
+                aiReply = choicesNode
+                        .get(0)
+                        .path("message")
+                        .path("content")
+                        .asText();
             }
-            if (aiReply.contains("User message:")) {
-                aiReply = aiReply.split("User message:")[0];
+
+            // 🛡️ Handle Groq error response
+            if (aiReply == null || aiReply.isBlank()) {
+
+                if (root.has("error")) {
+                    System.out.println("Groq error response: " + root.get("error"));
+                    return "⚠️ I’m having a little trouble responding right now. Please try again.";
+                }
+
+                // Friendly conversational fallback
+                return "I’m here to help 🙂 Could you tell me a bit more?";
             }
 
             return aiReply;
