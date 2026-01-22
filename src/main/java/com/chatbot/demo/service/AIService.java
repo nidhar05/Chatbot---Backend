@@ -13,38 +13,84 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class AIService {
 
-    @Value("${groq.api.key}")
+    // 🔑 Injected from Render Environment Variable: GROQ_API_KEY
+    @Value("${groq.api.key:}")
     private String apiKey;
 
     public String getAIReply(String userMessage) {
+
+        // 🛡️ Safety: if key is missing, do NOT crash app
+        if (apiKey == null || apiKey.isBlank()) {
+            return "⚠️ AI service is not configured properly. Please try again later.";
+        }
+
         try {
+            // 🔹 Groq API endpoint
             URL url = new URL("https://api.groq.com/openai/v1/chat/completions");
             HttpURLConnection con = (HttpURLConnection) url.openConnection();
 
             con.setRequestMethod("POST");
             con.setRequestProperty("Authorization", "Bearer " + apiKey);
             con.setRequestProperty("Content-Type", "application/json");
+            con.setConnectTimeout(15000); // 15 seconds
+            con.setReadTimeout(15000);
             con.setDoOutput(true);
 
+            // 🔹 Request body (chat-style, not completion-style)
             String body = """
             {
               "model": "llama3-8b-8192",
               "messages": [
-                {"role": "system", "content": "You are Prakruti AI, an Ayurvedic assistant. Give helpful, safe advice and ask ONE question only."},
-                {"role": "user", "content": "%s"}
-              ]
+                {
+                  "role": "system",
+                  "content": "You are Prakruti AI, an Ayurvedic health assistant. Respond clearly and safely. Do NOT invent user replies. Ask at most ONE follow-up question."
+                },
+                {
+                  "role": "user",
+                  "content": "%s"
+                }
+              ],
+              "temperature": 0.7
             }
             """.formatted(userMessage);
 
-            con.getOutputStream().write(body.getBytes());
+            // 🔹 Send request
+            try (OutputStream os = con.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
+            }
 
-            BufferedReader br = new BufferedReader(new InputStreamReader(con.getInputStream()));
-            String response = br.lines().reduce("", String::concat);
+            // 🔹 Read response
+            BufferedReader br = new BufferedReader(
+                    new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8)
+            );
 
-            return response.split("\"content\":\"")[1].split("\"")[0];
+            StringBuilder response = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) {
+                response.append(line);
+            }
+
+            String res = response.toString();
+
+            // 🔹 Extract AI message (simple but effective)
+            String aiReply = res.split("\"content\":\"")[1].split("\"")[0];
+
+            // 🔹 Cleanup formatting
+            aiReply = aiReply.replace("\\n", "\n");
+
+            // 🔹 Extra safety: remove any fake user text
+            if (aiReply.contains("User:")) {
+                aiReply = aiReply.split("User:")[0];
+            }
+            if (aiReply.contains("User message:")) {
+                aiReply = aiReply.split("User message:")[0];
+            }
+
+            return aiReply;
 
         } catch (Exception e) {
-            return "AI service is temporarily unavailable.";
+            e.printStackTrace();
+            return "⚠️ Prakruti AI is temporarily unavailable. Please try again.";
         }
     }
 }
