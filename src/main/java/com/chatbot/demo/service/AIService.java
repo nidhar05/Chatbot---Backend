@@ -49,8 +49,7 @@ public class AIService {
                   "role": "user",
                   "content": "%s"
                 }
-              ],
-              "temperature": 0.7
+              ]
             }
             """.formatted(userMessage);
 
