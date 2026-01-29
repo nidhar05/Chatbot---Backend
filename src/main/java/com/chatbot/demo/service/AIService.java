@@ -1,9 +1,5 @@
 package com.chatbot.demo.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -16,51 +12,37 @@ import java.nio.charset.StandardCharsets;
 @Service
 public class AIService {
 
-    // Injected from application.properties (local)
-    // OR Render Environment Variable: GROQ_API_KEY
-    @Value("${groq.api.key:}")
-    private String apiKey;
-
-    // Optional startup log (remove after testing)
-    @PostConstruct
-    public void logEnvCheck() {
-        System.out.println("Groq API key present: " + (apiKey != null && !apiKey.isBlank()));
-    }
-
     public String getAIReply(String userMessage) {
 
-        // Safety check
-        if (apiKey == null || apiKey.isBlank()) {
-            return "⚠️ AI service is not configured right now.";
-        }
-
         try {
-            URL url = new URL("https://api.groq.com/openai/v1/chat/completions");
+            // 🔹 Local Ollama URL
+            URL url = new URL("http://localhost:11434/api/generate");
             HttpURLConnection con = (HttpURLConnection) url.openConnection();
 
             con.setRequestMethod("POST");
-            con.setRequestProperty("Authorization", "Bearer " + apiKey);
             con.setRequestProperty("Content-Type", "application/json");
-            con.setConnectTimeout(15000);
-            con.setReadTimeout(15000);
             con.setDoOutput(true);
 
-            // 🧠 PURE CONVERSATIONAL PROMPT
+            // 🔹 Use LOW-RAM model
             String body = """
             {
-              "model": "llama-3.1-8b-instant",
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "You are Prakruti AI, a friendly and caring Ayurvedic health assistant. Speak naturally like a human. If the user greets, greet back. If they say they are not well, respond with empathy and ask what they are experiencing. If symptoms are described, explain possible causes and remedies. Introduce Prakruti concepts (Vata, Pitta, Kapha) ONLY if it naturally fits the conversation. Do NOT force Prakruti assessment. Ask only ONE follow-up question at a time."
-                },
-                {
-                  "role": "user",
-                  "content": "%s"
-                }
-              ],
-              "max_tokens": 300,
-              "temperature": 0.7
+              "model": "qwen2.5:1.5b",
+              "prompt": "You are Prakruti AI, an Ayurvedic health assistant.
+                    
+                                 Rules:
+                                 1. The user may answer in full sentences or paragraphs.
+                                 2. Ask ONLY ONE follow-up health question at a time.
+                                 3. Focus on symptoms, duration, sensation, and triggers.
+                                 4. Give a final accurate diagnosis with valuable reasons.
+                                 5. Keep responses short and clear.
+                    
+                                 Task:
+                                 - Understand the user's symptoms.
+                                 - Ask the next relevant question needed for Prakruti assessment.
+                    
+                                 User input:
+                                 <USER_MESSAGE>",
+              "stream": false
             }
             """.formatted(userMessage);
 
@@ -68,12 +50,9 @@ public class AIService {
                 os.write(body.getBytes(StandardCharsets.UTF_8));
             }
 
-            BufferedReader br;
-            if (con.getResponseCode() >= 400) {
-                br = new BufferedReader(new InputStreamReader(con.getErrorStream(), StandardCharsets.UTF_8));
-            } else {
-                br = new BufferedReader(new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8));
-            }
+            BufferedReader br = new BufferedReader(
+                    new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8)
+            );
 
             StringBuilder response = new StringBuilder();
             String line;
@@ -83,38 +62,23 @@ public class AIService {
 
             String res = response.toString();
 
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(res);
-
-            // 🔍 SAFE extraction
-            JsonNode choicesNode = root.path("choices");
-            String aiReply = null;
-
-            if (choicesNode.isArray() && choicesNode.size() > 0) {
-                aiReply = choicesNode
-                        .get(0)
-                        .path("message")
-                        .path("content")
-                        .asText();
+            // 🔹 Extract AI reply text
+            String aiReply;
+            if (res.contains("\"response\"")) {
+                aiReply = res.split("\"response\":\"")[1].split("\"")[0];
+            } else {
+                aiReply = "I need a little more information to understand your condition.";
             }
 
-            // 🛡️ Handle Groq error response
-            if (aiReply == null || aiReply.isBlank()) {
+            // 🔹 Prakruti assessment from YOUR logic
+            String prakruti = PrakrutiAnalyzer.assess(userMessage);
 
-                if (root.has("error")) {
-                    System.out.println("Groq error response: " + root.get("error"));
-                    return "⚠️ I’m having a little trouble responding right now. Please try again.";
-                }
-
-                // Friendly conversational fallback
-                return "I’m here to help 🙂 Could you tell me a bit more?";
-            }
-
-            return aiReply;
+            // 🔹 Final combined response
+            return aiReply + "\n\n🧘 Prakruti Assessment: " + prakruti;
 
         } catch (Exception e) {
             e.printStackTrace();
-            return "⚠️ Prakruti AI is temporarily unavailable. Please try again.";
+            return "Local AI is not running. Please make sure Ollama is running.";
         }
     }
 }
